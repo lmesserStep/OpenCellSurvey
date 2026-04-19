@@ -1,0 +1,727 @@
+{% extends "base.html" %}
+{% block title %}Survey — OpenCellSurvey{% endblock %}
+{% block page_title %}<i class="bi bi-map me-2"></i>Survey{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  /* Map page: compact padding, viewport-filling map */
+  .content-area { padding: 10px 12px; }
+  #main-map {
+    height: calc(100vh - var(--topbar-h) - 195px);
+    min-height: 420px;
+    border-radius: var(--radius);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Map controls bar ─────────────────────────────────────────────────────── -->
+<div class="map-controls">
+  <div class="row g-2 align-items-end">
+
+    <div class="col-auto">
+      <label class="form-label">Session</label>
+      <select class="form-select form-select-sm" id="session-select" style="min-width:180px">
+        <option value="">— Live —</option>
+        {% for s in sessions %}
+        <option value="{{ s.id }}">{{ (s.name or '(Unnamed)') }} ({{ s.point_count }} pts)</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-auto">
+      <label class="form-label">Metric</label>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-secondary active" data-heat-metric="rsrp">RSRP</button>
+        <button class="btn btn-outline-secondary"        data-heat-metric="rsrq">RSRQ</button>
+        <button class="btn btn-outline-secondary"        data-heat-metric="snr" >SNR</button>
+      </div>
+    </div>
+
+    <div class="col-auto">
+      <label class="form-label">Heatmap mode</label>
+      <div class="btn-group btn-group-sm">
+        <input type="radio" class="btn-check" name="heatmap-mode" id="hm-measured"  value="measured"  checked>
+        <label class="btn btn-outline-secondary" for="hm-measured">Measured</label>
+        <input type="radio" class="btn-check" name="heatmap-mode" id="hm-simulated" value="simulated">
+        <label class="btn btn-outline-secondary" for="hm-simulated">Simulated</label>
+      </div>
+    </div>
+
+    <div class="col-auto" id="tower-select-div" style="display:none">
+      <label class="form-label">Select tower</label>
+      <select class="form-select form-select-sm" id="tower-select" style="min-width:150px">
+        <option value="">— Choose tower —</option>
+      </select>
+    </div>
+
+    <div class="col-auto">
+      <label class="form-label">GPS follow</label><br>
+      <div class="form-check form-switch mt-1">
+        <input class="form-check-input" type="checkbox" id="follow-gps" checked>
+        <label class="form-check-label" for="follow-gps">Follow</label>
+      </div>
+    </div>
+
+    <!-- Color legend (LTE standard 4-tier) -->
+    <div class="col-auto ms-auto">
+      <label class="form-label">RSRP Scale</label>
+      <div style="display:flex;align-items:center;gap:8px;font-size:.75rem">
+        <span style="color:#dc3545">&#9632;</span> Poor (&lt;−100)
+        <span style="color:#ffc107">&#9632;</span> Fair (−100–−90)
+        <span style="color:#28a745">&#9632;</span> Good (−90–−80)
+        <span style="color:#007bff">&#9632;</span> Excellent (&ge;−80)
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- ── Map column ──────────────────────────────────────────────────────────── -->
+  <div class="col-lg-9">
+
+    <ul class="nav nav-tabs mb-2" id="map-tabs">
+      <li class="nav-item">
+        <a class="nav-link active" href="#" data-mode="outdoor"><i class="bi bi-globe me-1"></i>Outdoor</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" data-mode="indoor"><i class="bi bi-building me-1"></i>Indoor / Floor Plan</a>
+      </li>
+    </ul>
+
+    <div id="main-map"></div>
+
+    <div id="indoor-controls" class="card mt-3" style="display:none">
+      <div class="card-header"><i class="bi bi-image me-2"></i>Floor Plan</div>
+      <div class="card-body">
+        <div class="row g-2 align-items-end mb-2">
+          <div class="col-md-5">
+            <label class="form-label">Saved floor plans</label>
+            <select class="form-select form-select-sm" id="fp-select">
+              <option value="">— Upload or select —</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-sm btn-sidebar" id="fp-set-bounds">Load onto map</button>
+          </div>
+          <div class="col-md-5">
+            <form id="fp-upload-form" class="d-flex gap-2 align-items-end">
+              <div>
+                <label class="form-label">Upload new</label>
+                <input type="file" class="form-control form-control-sm" id="fp-file" accept=".png,.jpg,.jpeg,.pdf,.svg">
+              </div>
+              <button type="submit" class="btn btn-sm btn-accent">Upload</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Overlay mode -->
+        <div class="row g-2 align-items-center mb-2">
+          <div class="col-auto">
+            <label class="form-label mb-0">Display Mode</label>
+          </div>
+          <div class="col-auto">
+            <div class="btn-group btn-group-sm">
+              <input type="radio" class="btn-check" name="fp-mode" id="fp-mode-overlay" value="overlay" checked>
+              <label class="btn btn-outline-secondary" for="fp-mode-overlay">
+                <i class="bi bi-layers me-1"></i>Overlay on Map
+              </label>
+              <input type="radio" class="btn-check" name="fp-mode" id="fp-mode-indoor" value="indoor">
+              <label class="btn btn-outline-secondary" for="fp-mode-indoor">
+                <i class="bi bi-building me-1"></i>Indoor Only
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Manual indoor navigation -->
+        <div class="row g-2 align-items-center">
+          <div class="col-auto">
+            <label class="form-label mb-0">Manual Position</label>
+          </div>
+          <div class="col-auto">
+            <!-- Arrow pad -->
+            <div style="display:grid;grid-template-columns:repeat(3,32px);grid-template-rows:repeat(3,32px);gap:3px">
+              <div></div>
+              <button class="btn btn-sm btn-outline-secondary p-0" id="nav-fwd"   title="Forward"><i class="bi bi-arrow-up"></i></button>
+              <div></div>
+              <button class="btn btn-sm btn-outline-secondary p-0" id="nav-left"  title="Left">   <i class="bi bi-arrow-left"></i></button>
+              <button class="btn btn-sm btn-outline-secondary p-0" id="nav-record" title="Record here" style="font-size:.7rem">REC</button>
+              <button class="btn btn-sm btn-outline-secondary p-0" id="nav-right" title="Right">  <i class="bi bi-arrow-right"></i></button>
+              <div></div>
+              <button class="btn btn-sm btn-outline-secondary p-0" id="nav-back"  title="Back">   <i class="bi bi-arrow-down"></i></button>
+              <div></div>
+            </div>
+          </div>
+          <div class="col-auto">
+            <small class="text-muted">Step: <input type="number" id="nav-step" value="2" min="0.5" max="50" step="0.5" style="width:55px" class="form-control form-control-sm d-inline-block"> m</small>
+          </div>
+          <div class="col-auto">
+            <small class="text-muted d-block">Or <strong>tap/click the floor plan</strong> to place position.</small>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Right panel ────────────────────────────────────────────────────────── -->
+  <div class="col-lg-3">
+
+    <!-- 1. Survey control ───────────────────────────────────────────────────── -->
+    <div class="card mb-3" id="survey-control-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-radar me-2"></i>Survey</span>
+        <span id="map-scan-badge" class="badge bg-secondary">Idle</span>
+      </div>
+      <div class="card-body">
+
+        <!-- Band -->
+        <div class="mb-2">
+          <label class="form-label mb-1" style="font-size:.8rem">Band</label>
+          <select class="form-select form-select-sm" id="map-band-select"></select>
+        </div>
+
+        <!-- Mode + PCI -->
+        <div class="row g-1 mb-2">
+          <div class="col-6">
+            <label class="form-label mb-1" style="font-size:.8rem">Mode</label>
+            <select class="form-select form-select-sm" id="map-scan-mode">
+              <option value="normal">Normal</option>
+              <option value="fast">Fast</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label mb-1" style="font-size:.8rem">PCI</label>
+            <input type="number" class="form-control form-control-sm" id="map-pci-input"
+                   min="0" max="503" placeholder="any">
+          </div>
+        </div>
+
+        <!-- PRB -->
+        <div class="mb-2">
+          <label class="form-label mb-1" style="font-size:.8rem">PRB</label>
+          <select class="form-select form-select-sm" id="map-prb-select">
+            <option value="">— Select PRB —</option>
+            <option value="6">6 &nbsp;(1.4 MHz)</option>
+            <option value="15">15 &nbsp;(3 MHz)</option>
+            <option value="25">25 &nbsp;(5 MHz)</option>
+            <option value="50">50 &nbsp;(10 MHz)</option>
+            <option value="75">75 &nbsp;(15 MHz)</option>
+            <option value="100" selected>100 &nbsp;(20 MHz)</option>
+          </select>
+          <div id="prb-warning" class="form-text text-danger" style="display:none">
+            PRB selection is required for Band 48 surveys.
+          </div>
+        </div>
+
+        <!-- Start / Stop -->
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-accent flex-grow-1" id="map-btn-start">
+            <i class="bi bi-play-fill me-1"></i>Start
+          </button>
+          <button class="btn btn-sm btn-danger flex-grow-1" id="map-btn-stop" disabled>
+            <i class="bi bi-stop-fill me-1"></i>Stop
+          </button>
+        </div>
+
+        <!-- Export report (requires a session to be selected) -->
+        <div class="mt-2">
+          <button class="btn btn-sm btn-outline-secondary w-100" id="map-btn-export" disabled>
+            <i class="bi bi-download me-1"></i>Export Report
+          </button>
+          <div class="form-text text-center" id="export-hint">Select a session to export</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 2. Current Cell ─────────────────────────────────────────────────────── -->
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-cpu me-2"></i>Current Cell</div>
+      <div class="card-body p-2">
+        <table class="table table-sm table-borderless mb-0" style="font-size:.82rem">
+          <tbody>
+            <tr><td class="text-muted ps-2">Band</td>    <td id="cell-band"   class="fw-semibold font-monospace">—</td></tr>
+            <tr><td class="text-muted ps-2">EARFCN</td>  <td id="cell-earfcn" class="fw-semibold font-monospace">—</td></tr>
+            <tr><td class="text-muted ps-2">PCI</td>     <td id="cell-pci"    class="fw-semibold font-monospace">—</td></tr>
+            <tr><td class="text-muted ps-2">Freq</td>    <td id="cell-freq"   class="fw-semibold font-monospace">—</td></tr>
+          </tbody>
+        </table>
+        <div class="form-section-title mt-2 mb-1 px-2">Radio</div>
+        <table class="table table-sm table-borderless mb-0" style="font-size:.82rem">
+          <tbody>
+            <tr><td class="text-muted ps-2">PRB</td>    <td id="cell-prb"   class="fw-semibold font-monospace">—</td></tr>
+            <tr><td class="text-muted ps-2">Ports</td>  <td id="cell-ports" class="fw-semibold font-monospace">—</td></tr>
+            <tr><td class="text-muted ps-2">Frame</td>  <td id="cell-frame" class="fw-semibold font-monospace">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3. Live Signal ──────────────────────────────────────────────────────── -->
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-graph-up me-2"></i>Live Signal</div>
+      <div class="card-body pb-2">
+        <div class="metric-card mb-2" id="card-rsrp-map">
+          <div class="metric-label">RSRP</div>
+          <div class="metric-value" id="mm-rsrp">—</div>
+          <div class="metric-unit">dBm</div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <div class="metric-card">
+              <div class="metric-label">RSRQ</div>
+              <div class="metric-value" style="font-size:1.2rem" id="mm-rsrq">—</div>
+              <div class="metric-unit">dB</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="metric-card">
+              <div class="metric-label">SNR</div>
+              <div class="metric-value" style="font-size:1.2rem" id="mm-snr">—</div>
+              <div class="metric-unit">dB</div>
+            </div>
+          </div>
+        </div>
+        <!-- RSRP time-series chart -->
+        <div style="height:90px;position:relative">
+          <canvas id="rsrp-chart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Survey Stats ─────────────────────────────────────────────────────── -->
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-bar-chart-line me-2"></i>Survey Stats</div>
+      <div class="card-body p-2">
+        <table class="table table-sm table-borderless mb-0" style="font-size:.82rem">
+          <tbody>
+            <tr>
+              <td class="text-muted ps-2">Samples</td>
+              <td id="stat-samples"   class="fw-semibold font-monospace">0</td>
+            </tr>
+            <tr>
+              <td class="text-muted ps-2">Distance</td>
+              <td id="stat-distance"  class="fw-semibold font-monospace">0.00 mi</td>
+            </tr>
+            <tr>
+              <td class="text-muted ps-2">Avg RSRP</td>
+              <td id="stat-avg-rsrp"  class="fw-semibold font-monospace">—</td>
+            </tr>
+            <tr>
+              <td class="text-muted ps-2">Best RSRP</td>
+              <td id="stat-best-rsrp" class="fw-semibold font-monospace text-success">—</td>
+            </tr>
+            <tr>
+              <td class="text-muted ps-2">Worst RSRP</td>
+              <td id="stat-worst-rsrp" class="fw-semibold font-monospace text-danger">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 5. Session info ────────────────────────────────────────────────────── -->
+    <div class="card mb-3" id="session-info-card" style="display:none">
+      <div class="card-header"><i class="bi bi-bookmark me-2"></i>Session</div>
+      <div class="card-body">
+        <div id="session-name-display" style="font-weight:600;margin-bottom:8px"></div>
+        <div style="font-size:.85rem;color:#666;margin-bottom:12px" id="session-time-display"></div>
+        <button class="btn btn-sm btn-outline-secondary w-100" onclick="renameCurrentSession()">
+          <i class="bi bi-pencil me-1"></i>Rename
+        </button>
+      </div>
+    </div>
+
+    <!-- 6. Towers ──────────────────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-header"><i class="bi bi-broadcast me-2"></i>Towers</div>
+      <div class="card-body p-2">
+        <p class="text-muted" style="font-size:.8rem">
+          <i class="bi bi-info-circle me-1"></i>Right-click the map to place a tower.
+        </p>
+        <div id="tower-list-mini" class="d-flex flex-column gap-1"></div>
+      </div>
+    </div>
+
+  </div><!-- /col-lg-3 -->
+</div><!-- /row -->
+
+<!-- Tower placement modal -->
+<div class="modal fade" id="towerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-broadcast me-2"></i>Place Tower</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="tower-name" placeholder="e.g. Site Alpha">
+          </div>
+          <div class="col-6">
+            <label class="form-label">PCI</label>
+            <input type="number" class="form-control" id="tower-pci" min="0" max="503">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Band</label>
+            <input type="number" class="form-control" id="tower-band">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Azimuth (°)</label>
+            <input type="number" class="form-control" id="tower-az" min="0" max="360">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Height (m)</label>
+            <input type="number" class="form-control" id="tower-ht" min="0">
+          </div>
+          <div class="col-6">
+            <label class="form-label">EIRP (Watts)</label>
+            <input type="number" class="form-control" id="tower-eirp" min="0" step="0.1" placeholder="e.g. 100">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notes</label>
+            <textarea class="form-control" id="tower-notes" rows="2"></textarea>
+          </div>
+          <input type="hidden" id="tower-lat">
+          <input type="hidden" id="tower-lng">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-accent" id="btn-save-tower">Save Tower</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js"></script>
+<script src="/static/js/map.js"></script>
+
+<script>
+/* ── Survey control panel ─────────────────────────────────────────────────── */
+(async function () {
+  const LS = {
+    get: k      => localStorage.getItem('ocs_' + k),
+    set: (k, v) => localStorage.setItem('ocs_' + k, v),
+  };
+
+  // Band selector
+  try {
+    const bands = await fetch('/api/bands').then(r => r.json());
+    const sel   = document.getElementById('map-band-select');
+    if (sel) {
+      Object.entries(bands).forEach(([num, b]) => {
+        const opt = document.createElement('option');
+        opt.value = num; opt.textContent = b.name;
+        sel.appendChild(opt);
+      });
+      // Restore saved or default to 13
+      const saved = LS.get('band');
+      sel.value = saved || '13';
+    }
+  } catch (_) {}
+
+  // Restore other settings
+  const modeEl = document.getElementById('map-scan-mode');
+  const pciEl  = document.getElementById('map-pci-input');
+  const prbEl  = document.getElementById('map-prb-select');
+  if (modeEl && LS.get('mode')) modeEl.value = LS.get('mode');
+  if (pciEl  && LS.get('pci'))  pciEl.value  = LS.get('pci');
+  if (prbEl  && LS.get('prb'))  prbEl.value  = LS.get('prb');
+
+  // Persist on change
+  document.getElementById('map-band-select')?.addEventListener('change', e => {
+    LS.set('band', e.target.value);
+    validatePrb();
+  });
+  modeEl?.addEventListener('change', e => LS.set('mode', e.target.value));
+  pciEl?.addEventListener('input',   e => LS.set('pci',  e.target.value));
+  prbEl?.addEventListener('change',  e => { LS.set('prb', e.target.value); validatePrb(); });
+
+  // PRB / Band-48 validation
+  function validatePrb() {
+    const band    = parseInt(document.getElementById('map-band-select')?.value);
+    const prb     = document.getElementById('map-prb-select')?.value;
+    const warn    = document.getElementById('prb-warning');
+    const startBtn= document.getElementById('map-btn-start');
+    const isBand48 = band === 48;
+    const needsPrb = isBand48 && !prb;
+    if (warn)     warn.style.display    = needsPrb ? '' : 'none';
+    if (startBtn) startBtn.disabled     = needsPrb || false;
+  }
+  validatePrb();
+
+  // Binary path
+  let binaryPath = '/usr/local/bin/cell_monitor';
+  try {
+    const s = await fetch('/api/settings').then(r => r.json());
+    if (s.binary_path) binaryPath = s.binary_path;
+  } catch (_) {}
+
+  // Scan state UI
+  function updateScanUI(running) {
+    const startBtn = document.getElementById('map-btn-start');
+    const stopBtn  = document.getElementById('map-btn-stop');
+    const badge    = document.getElementById('map-scan-badge');
+    // Re-evaluate prb constraint when scan state changes
+    const band     = parseInt(document.getElementById('map-band-select')?.value);
+    const prb      = document.getElementById('map-prb-select')?.value;
+    const blocked  = (band === 48 && !prb);
+    if (startBtn) startBtn.disabled = running || blocked;
+    if (stopBtn)  stopBtn.disabled  = !running;
+    if (badge) {
+      badge.className = 'badge ' + (running ? 'bg-success' : 'bg-secondary');
+      badge.textContent = running ? 'Running' : 'Idle';
+    }
+  }
+
+  try {
+    const st = await fetch('/api/survey/status').then(r => r.json());
+    updateScanUI(st.running);
+  } catch (_) {}
+
+  OCS.ws.on('status', d => updateScanUI(d.running));
+
+  // Start survey — include survey mode so the session is locked to it
+  document.getElementById('map-btn-start')?.addEventListener('click', async () => {
+    const band   = parseInt(document.getElementById('map-band-select').value, 10);
+    const pciRaw = document.getElementById('map-pci-input').value.trim();
+    const mode   = document.getElementById('map-scan-mode').value;
+    const prbRaw = document.getElementById('map-prb-select').value;
+
+    if (band === 48 && !prbRaw) {
+      OCS.toast.warning('PRB selection is required for Band 48.');
+      return;
+    }
+
+    // Capture current map mode from the state machine
+    const modeInfo = OCS.map?.getSurveyModeInfo?.() || {};
+
+    try {
+      const resp = await fetch('/api/survey/start', {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify({
+          band, mode, frame_type: 'FDD', binary_path: binaryPath,
+          pci          : pciRaw ? parseInt(pciRaw, 10) : null,
+          prb          : prbRaw ? parseInt(prbRaw, 10) : null,
+          bandwidth_mhz: null,
+          // Survey mode state machine
+          survey_mode     : modeInfo.surveyMode     || 'MAP_SURVEY',
+          floorplan_url   : modeInfo.floorplanUrl   || null,
+          floorplan_bounds: modeInfo.floorplanBounds || null,
+        }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        OCS.toast.danger('Start failed: ' + (err.detail || resp.statusText));
+      } else {
+        OCS.toast.success('Survey started');
+      }
+    } catch (e) { OCS.toast.danger('Error: ' + e.message); }
+  });
+
+  // Stop survey
+  document.getElementById('map-btn-stop')?.addEventListener('click', async () => {
+    try {
+      const resp = await fetch('/api/survey/stop', { method: 'POST' });
+      if (!resp.ok) {
+        const err = await resp.json();
+        OCS.toast.danger('Stop failed: ' + (err.detail || resp.statusText));
+      }
+    } catch (e) { OCS.toast.danger('Error: ' + e.message); }
+  });
+
+  // Export report — captures the live Leaflet map with leaflet-image then POSTs
+  document.getElementById('map-btn-export')?.addEventListener('click', async () => {
+    const sel       = document.getElementById('session-select');
+    const sessionId = sel?.value;
+    if (!sessionId) { OCS.toast.warning('Select a session to export'); return; }
+
+    const btn = document.getElementById('map-btn-export');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Capturing…';
+
+    const lMap = OCS.map?.getMap?.();
+
+    function doExport(mapBase64) {
+      fetch(`/api/export/${sessionId}/with-map`, {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify({ map_image_base64: mapBase64 }),
+      })
+        .then(r => {
+          if (!r.ok) throw new Error(r.statusText);
+          return r.blob();
+        })
+        .then(blob => {
+          const url = URL.createObjectURL(blob);
+          const a   = document.createElement('a');
+          a.href     = url;
+          a.download = `report_${sessionId}.html`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          OCS.toast.success('Report exported');
+        })
+        .catch(e => OCS.toast.danger('Export failed: ' + e.message))
+        .finally(() => {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-download me-1"></i>Export Report';
+        });
+    }
+
+    const modeInfo   = OCS.map?.getSurveyModeInfo?.() || {};
+    const isIndoorOnly = modeInfo.surveyMode === 'INDOOR_ONLY';
+
+    if (!isIndoorOnly && lMap && typeof leafletImage !== 'undefined') {
+      // Capture the live Leaflet map (tile CORS headers allow canvas read-back)
+      leafletImage(lMap, (err, canvas) => {
+        let dataUrl = null;
+        if (!err) {
+          try { dataUrl = canvas.toDataURL('image/png'); } catch (_) { /* tainted */ }
+        }
+        doExport(dataUrl);
+      });
+    } else {
+      // INDOOR_ONLY: skip leaflet-image; the server embeds the floor plan as
+      // base64 so the canvas fallback renders it without any CORS constraints.
+      // Also used when leaflet-image is unavailable.
+      doExport(null);
+    }
+  });
+})();
+</script>
+
+<script>
+/* ── Tab switching, heatmap mode, session management ──────────────────────── */
+(function () {
+
+  // Outdoor / Indoor tab
+  document.querySelectorAll('[data-mode]').forEach(tab => {
+    tab.addEventListener('click', e => {
+      e.preventDefault();
+      document.querySelectorAll('[data-mode]').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const ic = document.getElementById('indoor-controls');
+      if (ic) ic.style.display = tab.dataset.mode === 'indoor' ? '' : 'none';
+    });
+  });
+
+  // Heatmap mode radio (measured / simulated)
+  document.querySelectorAll('input[name="heatmap-mode"]').forEach(radio => {
+    radio.addEventListener('change', () => setHeatmapMode(radio.value));
+  });
+
+  // Tower simulation dropdown
+  const towerSelect = document.getElementById('tower-select');
+  if (towerSelect) {
+    towerSelect.addEventListener('change', () => simulateTowerCoverage(towerSelect.value));
+  }
+
+  // Tower mini list
+  async function loadTowerList() {
+    const resp   = await fetch('/api/towers');
+    const towers = await resp.json();
+    const list   = document.getElementById('tower-list-mini');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!towers.length) {
+      list.innerHTML = '<span class="text-muted" style="font-size:.8rem">No towers yet</span>';
+      return;
+    }
+    towers.forEach(t => {
+      list.insertAdjacentHTML('beforeend', `
+        <div class="d-flex justify-content-between align-items-center px-1 py-1 rounded" style="background:#f8f9fa">
+          <span style="font-size:.82rem"><i class="bi bi-broadcast text-warning me-1"></i>${t.name}</span>
+          <small class="text-muted">PCI ${t.pci ?? '—'}</small>
+        </div>`);
+    });
+  }
+
+  // Enable/disable Export button based on session selection
+  function updateExportBtn() {
+    const sel     = document.getElementById('session-select');
+    const btn     = document.getElementById('map-btn-export');
+    const hint    = document.getElementById('export-hint');
+    const hasSession = sel?.value ? true : false;
+    if (btn)  btn.disabled = !hasSession;
+    if (hint) hint.style.display = hasSession ? 'none' : '';
+  }
+  document.getElementById('session-select')?.addEventListener('change', updateExportBtn);
+
+  // Session dropdown refresh
+  async function updateSessionDropdown() {
+    const resp     = await fetch('/api/sessions');
+    const sessions = await resp.json();
+    const sel      = document.getElementById('session-select');
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— Live —</option>';
+    sessions.forEach(s => {
+      sel.insertAdjacentHTML('beforeend',
+        `<option value="${s.id}">${s.name || '(Unnamed)'} (${s.point_count} pts)</option>`);
+    });
+    sel.value = cur;
+    updateExportBtn();
+  }
+
+  // Rename session
+  async function renameCurrentSession() {
+    const sel = document.getElementById('session-select');
+    if (!sel || !sel.value) { OCS.toast.warning('No session selected'); return; }
+    const sessionId = sel.value;
+    const newName   = prompt('Enter new session name:');
+    if (newName === null) return;
+    if (!newName.trim()) { OCS.toast.warning('Session name cannot be empty'); return; }
+    try {
+      const resp = await fetch('/api/sessions/' + sessionId, {
+        method : 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify({ name: newName.trim(), notes: '' }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        OCS.toast.danger('Rename failed: ' + (err.detail || resp.statusText));
+        return;
+      }
+      OCS.toast.success('Session renamed');
+      updateSessionDropdown().then(() => {
+        sel.value = sessionId;
+        sel.dispatchEvent(new Event('change'));
+      });
+    } catch (e) { OCS.toast.danger('Error: ' + e.message); }
+  }
+
+  window.renameCurrentSession = renameCurrentSession;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadTowerList();
+    updateSessionDropdown();
+  });
+
+  // Auto-select session from query string
+  const preSession = new URLSearchParams(location.search).get('session');
+  if (preSession) {
+    document.addEventListener('DOMContentLoaded', () => {
+      const sel = document.getElementById('session-select');
+      if (sel) { sel.value = preSession; sel.dispatchEvent(new Event('change')); }
+    });
+  }
+})();
+</script>
+{% endblock %}

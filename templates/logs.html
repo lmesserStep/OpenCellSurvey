@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Logs — OpenCellSurvey{% endblock %}
+{% block page_title %}<i class="bi bi-terminal me-2"></i>Logs{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-secondary" id="btn-pause">
+      <i class="bi bi-pause-fill me-1"></i>Pause
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" id="btn-clear">
+      <i class="bi bi-trash me-1"></i>Clear
+    </button>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <label class="form-label mb-0 me-1" style="font-size:.82rem">Filter:</label>
+    <div class="btn-group btn-group-sm">
+      <button class="btn btn-outline-secondary active" data-filter="all">All</button>
+      <button class="btn btn-outline-secondary" data-filter="stdout">stdout</button>
+      <button class="btn btn-outline-secondary" data-filter="stderr">stderr</button>
+      <button class="btn btn-outline-secondary" data-filter="system">system</button>
+    </div>
+    <span class="ms-3 text-muted" style="font-size:.8rem">Lines: <strong id="line-count">0</strong></span>
+  </div>
+</div>
+
+<div class="log-terminal" id="log-panel"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const panel    = document.getElementById('log-panel');
+  const countEl  = document.getElementById('line-count');
+  const MAX      = 500;
+  let paused     = false;
+  let lineCount  = 0;
+  let filter     = 'all';
+
+  function classFor(msg) {
+    if (msg.startsWith('[stderr]')) return 'log-stderr';
+    if (msg.startsWith('[system]')) return 'log-system';
+    return 'log-stdout';
+  }
+
+  function filterMatch(cls) {
+    if (filter === 'all')    return true;
+    if (filter === 'stdout') return cls === 'log-stdout';
+    if (filter === 'stderr') return cls === 'log-stderr';
+    if (filter === 'system') return cls === 'log-system';
+    return true;
+  }
+
+  function appendLog(msg) {
+    const cls = classFor(msg);
+    if (!filterMatch(cls)) return;
+    if (paused) return;
+
+    const div = document.createElement('div');
+    div.className = 'log-line ' + cls;
+    div.textContent = msg;
+    panel.appendChild(div);
+    lineCount++;
+    countEl.textContent = lineCount;
+
+    // Trim oldest
+    if (lineCount > MAX) {
+      panel.firstChild?.remove();
+      lineCount--;
+    }
+    panel.scrollTop = panel.scrollHeight;
+  }
+
+  OCS.ws.on('log', d => appendLog(d.message));
+  OCS.ws.on('survey_data', d => {
+    appendLog('[data] ' + JSON.stringify(d));
+  });
+
+  document.getElementById('btn-pause')?.addEventListener('click', (e) => {
+    paused = !paused;
+    e.currentTarget.innerHTML = paused
+      ? '<i class="bi bi-play-fill me-1"></i>Resume'
+      : '<i class="bi bi-pause-fill me-1"></i>Pause';
+  });
+
+  document.getElementById('btn-clear')?.addEventListener('click', () => {
+    panel.innerHTML = ''; lineCount = 0; countEl.textContent = '0';
+  });
+
+  document.querySelectorAll('[data-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filter = btn.dataset.filter;
+    });
+  });
+})();
+</script>
+{% endblock %}

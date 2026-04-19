@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Exports — OpenCellSurvey{% endblock %}
+{% block page_title %}<i class="bi bi-file-earmark-arrow-down me-2"></i>Exports{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <i class="bi bi-archive me-2"></i>Survey Sessions
+  </div>
+  <div class="card-body p-0">
+    {% if sessions %}
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Session</th>
+          <th>Started</th>
+          <th>Ended</th>
+          <th>Points</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in sessions %}
+        <tr>
+          <td>
+            <strong>{{ s.name if s.name else '(Unnamed)' }}</strong>
+            {% if not s.name %}
+              <br><small><code>{{ s.id }}</code></small>
+            {% endif %}
+          </td>
+          <td>{{ s.started_at[:19].replace('T', ' ') if s.started_at else '—' }}</td>
+          <td>{{ s.ended_at[:19].replace('T', ' ') if s.ended_at else '—' }}</td>
+          <td>{{ s.point_count }}</td>
+          <td>
+            {% if s.ended_at %}
+              <span class="badge bg-secondary">Completed</span>
+            {% else %}
+              <span class="badge bg-success">Active</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="btn-group btn-group-sm" role="group">
+              <a href="/map?session={{ s.id }}" class="btn btn-outline-secondary" title="View on map">
+                <i class="bi bi-map"></i>
+              </a>
+              <button class="btn btn-accent"
+                      onclick="exportSession('{{ s.id }}')"
+                      title="Download HTML report">
+                <i class="bi bi-download me-1"></i>Report
+              </button>
+              <button class="btn btn-outline-secondary"
+                      onclick="renameSession('{{ s.id }}', '{{ s.name or '' }}')"
+                      title="Rename session">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="btn btn-outline-danger"
+                      onclick="confirmDeleteSession('{{ s.id }}', '{{ s.name or s.id }}')"
+                      title="Delete session">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-inbox" style="font-size:2.5rem"></i>
+      <div class="mt-2">No sessions yet. <a href="/survey">Run a scan first</a>.</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header"><i class="bi bi-info-circle me-2"></i>About Reports</div>
+  <div class="card-body" style="font-size:.88rem">
+    <p>HTML reports are self-contained and work fully offline. Each report includes:</p>
+    <ul>
+      <li>Interactive Leaflet map with survey path and color-coded signal markers</li>
+      <li>Heatmap overlay (RSRP-based)</li>
+      <li>Tower locations</li>
+      <li>Min / Max / Average statistics for RSRP, RSRQ, and SNR</li>
+      <li>Full data table</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function exportSession(id) {
+  OCS.toast.info('Generating report…');
+  try {
+    const resp = await fetch('/api/export/' + id, { method: 'POST' });
+    if (!resp.ok) { OCS.toast.danger('Export failed: ' + resp.statusText); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'report_' + id + '.html';
+    a.click();
+    URL.revokeObjectURL(url);
+    OCS.toast.success('Report downloaded');
+  } catch (e) {
+    OCS.toast.danger('Error: ' + e.message);
+  }
+}
+
+function renameSession(id, currentName) {
+  const newName = prompt('Enter new session name:', currentName);
+  if (newName === null) return;
+  if (!newName.trim()) {
+    OCS.toast.warning('Session name cannot be empty');
+    return;
+  }
+  updateSession(id, newName.trim());
+}
+
+async function updateSession(id, name) {
+  try {
+    const resp = await fetch('/api/sessions/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, notes: '' }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      OCS.toast.danger('Rename failed: ' + (err.detail || resp.statusText));
+      return;
+    }
+    OCS.toast.success('Session renamed');
+    location.reload();
+  } catch (e) {
+    OCS.toast.danger('Error: ' + e.message);
+  }
+}
+
+function confirmDeleteSession(id, name) {
+  if (!confirm('Delete session "' + name + '" and all its data? This cannot be undone.')) return;
+  deleteSession(id);
+}
+
+async function deleteSession(id) {
+  try {
+    const resp = await fetch('/api/sessions/' + id, { method: 'DELETE' });
+    if (!resp.ok) {
+      const err = await resp.json();
+      OCS.toast.danger('Delete failed: ' + (err.detail || resp.statusText));
+      return;
+    }
+    OCS.toast.success('Session deleted');
+    location.reload();
+  } catch (e) {
+    OCS.toast.danger('Error: ' + e.message);
+  }
+}
+</script>
+{% endblock %}

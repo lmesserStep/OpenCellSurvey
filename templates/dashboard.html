@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — OpenCellSurvey{% endblock %}
+{% block page_title %}<i class="bi bi-speedometer2 me-2"></i>Dashboard{% endblock %}
+
+{% block content %}
+<!-- Live metric grid -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="metric-card" id="card-rsrp">
+      <div class="metric-label">RSRP</div>
+      <div class="metric-value" id="m-rsrp">—</div>
+      <div class="metric-unit">dBm</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="metric-card">
+      <div class="metric-label">RSRQ</div>
+      <div class="metric-value" id="m-rsrq">—</div>
+      <div class="metric-unit">dB</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="metric-card">
+      <div class="metric-label">SNR</div>
+      <div class="metric-value" id="m-snr">—</div>
+      <div class="metric-unit">dB</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="metric-card accent">
+      <div class="metric-label">Frequency</div>
+      <div class="metric-value" id="m-freq">—</div>
+      <div class="metric-unit">MHz</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="metric-card">
+      <div class="metric-label">PCI</div>
+      <div class="metric-value" id="m-pci">—</div>
+      <div class="metric-unit">&nbsp;</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="metric-card">
+      <div class="metric-label">PRB</div>
+      <div class="metric-value" id="m-prb">—</div>
+      <div class="metric-unit">&nbsp;</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="metric-card">
+      <div class="metric-label">Ports</div>
+      <div class="metric-value" id="m-ports">—</div>
+      <div class="metric-unit">&nbsp;</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="metric-card">
+      <div class="metric-label">Band / Frame</div>
+      <div class="metric-value" style="font-size:1.2rem" id="m-band-frame">—</div>
+      <div class="metric-unit" id="m-frame">&nbsp;</div>
+    </div>
+  </div>
+</div>
+
+<!-- Recent survey sessions -->
+<div class="card">
+  <div class="card-header">
+    <i class="bi bi-clock-history me-2"></i>Recent Sessions
+  </div>
+  <div class="card-body p-0">
+    <div id="sessions-list">
+      <div class="text-center text-muted py-4" id="sessions-empty">
+        <i class="bi bi-inbox" style="font-size:2rem"></i>
+        <div class="mt-2">No sessions yet. <a href="/survey">Start a scan</a>.</div>
+      </div>
+      <table class="table table-hover mb-0" id="sessions-table" style="display:none">
+        <thead>
+          <tr>
+            <th>Session ID</th><th>Started</th><th>Ended</th><th>Points</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="sessions-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  function set(id, val) { const el=document.getElementById(id); if(el) el.textContent=val; }
+
+  OCS.ws.on('survey_data', d => {
+    set('m-rsrp',  d.rsrp_dbm!=null ? d.rsrp_dbm.toFixed(1) : '—');
+    set('m-rsrq',  d.rsrq_db !=null ? d.rsrq_db.toFixed(1)  : '—');
+    set('m-snr',   d.snr_db  !=null ? d.snr_db.toFixed(1)   : '—');
+    set('m-freq',  d.freq_mhz!=null ? d.freq_mhz.toFixed(2) : '—');
+    set('m-pci',   d.pci     !=null ? d.pci                  : '—');
+    set('m-prb',   d.n_prb   !=null ? d.n_prb                : '—');
+    set('m-ports', d.ports   !=null ? d.ports                : '—');
+    set('m-band-frame', d.band ? `B${d.band}` : '—');
+    set('m-frame', d.frame_type || '');
+
+    const card = document.getElementById('card-rsrp');
+    if (card && d.rsrp_dbm != null) {
+      card.classList.remove('good','warn','bad');
+      card.classList.add(d.rsrp_dbm>=-80?'good':d.rsrp_dbm>=-100?'warn':'bad');
+    }
+  });
+
+  async function loadSessions() {
+    const resp = await fetch('/api/sessions');
+    const rows = await resp.json();
+    const tbody = document.getElementById('sessions-tbody');
+    const table = document.getElementById('sessions-table');
+    const empty = document.getElementById('sessions-empty');
+    if (!rows.length) return;
+    empty.style.display = 'none';
+    table.style.display = '';
+    tbody.innerHTML = '';
+    rows.slice(0,10).forEach(s => {
+      tbody.insertAdjacentHTML('beforeend', `<tr>
+        <td><code>${s.id}</code></td>
+        <td>${(s.started_at||'').slice(0,19).replace('T',' ')}</td>
+        <td>${s.ended_at ? s.ended_at.slice(0,19).replace('T',' ') : '<span class="text-success">Active</span>'}</td>
+        <td>${s.point_count}</td>
+        <td>
+          <a href="/map?session=${s.id}" class="btn btn-sm btn-sidebar me-1"><i class="bi bi-map"></i></a>
+          <button class="btn btn-sm btn-accent" onclick="exportSession('${s.id}')"><i class="bi bi-download"></i></button>
+        </td>
+      </tr>`);
+    });
+  }
+
+  window.exportSession = async function(id) {
+    const a = document.createElement('a');
+    a.href = '/api/export/' + id;
+    a.download = 'report_' + id + '.html';
+    a.click();
+  };
+
+  document.addEventListener('DOMContentLoaded', loadSessions);
+})();
+</script>
+{% endblock %}

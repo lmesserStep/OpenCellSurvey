@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}Settings — OpenCellSurvey{% endblock %}
+{% block page_title %}<i class="bi bi-gear me-2"></i>Settings{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-terminal me-2"></i>Binary</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Binary Path</label>
+          <div class="input-group">
+            <input type="text" class="form-control font-monospace" id="s-binary" value="{{ binary_path }}">
+            <button class="btn btn-outline-secondary" type="button" id="btn-detect-s" title="Search common locations">
+              <i class="bi bi-search"></i> Detect
+            </button>
+            <button class="btn btn-outline-primary" type="button" id="btn-test-binary" title="Test this path">
+              <i class="bi bi-lightning-charge"></i> Test
+            </button>
+          </div>
+          <div class="form-text">
+            Full path to the <code>cell_monitor</code> binary. Use <strong>Test</strong> to verify
+            the path is accessible before saving.
+          </div>
+        </div>
+        <div id="binary-status" class="alert d-none" role="alert"></div>
+        <div class="mt-2">
+          <div class="form-section-title">Search paths</div>
+          <ul class="list-unstyled mb-0" style="font-size:.82rem;font-family:monospace">
+            {% for p in search_paths %}
+            <li class="text-muted">{{ p }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-rulers me-2"></i>Display</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Distance Units</label>
+          <select class="form-select" id="s-units">
+            <option value="meters"  {% if units == 'meters' %}selected{% endif %}>Meters</option>
+            <option value="feet"    {% if units == 'feet'   %}selected{% endif %}>Feet</option>
+          </select>
+          <div class="form-text">Affects map scale and distance display.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="row g-4 mt-0">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-map me-2"></i>Offline Map Tiles</div>
+      <div class="card-body">
+        <p class="form-text mb-3">Pre-download map tiles so the map works without internet. Tiles are cached on disk and served locally.</p>
+        <div class="row g-3 align-items-end">
+          <div class="col-md-2">
+            <label class="form-label">Center Lat</label>
+            <input type="number" class="form-control" id="tile-lat" step="0.0001" placeholder="39.5000">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Center Lon</label>
+            <input type="number" class="form-control" id="tile-lon" step="0.0001" placeholder="-98.3500">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Radius</label>
+            <select class="form-select" id="tile-radius">
+              <option value="5">5 km</option>
+              <option value="10" selected>10 km</option>
+              <option value="20">20 km</option>
+              <option value="50">50 km</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Max Zoom</label>
+            <select class="form-select" id="tile-zoom-max">
+              <option value="14">14 — overview</option>
+              <option value="15">15</option>
+              <option value="16" selected>16 — detail</option>
+              <option value="17">17 — high detail</option>
+            </select>
+          </div>
+          <div class="col-md-4 d-flex align-items-end gap-2">
+            <button class="btn btn-accent" id="btn-download-tiles">
+              <i class="bi bi-cloud-download me-1"></i>Download Tiles
+            </button>
+            <button class="btn btn-outline-secondary" id="btn-use-gps-loc" title="Use current GPS location">
+              <i class="bi bi-crosshair"></i>
+            </button>
+          </div>
+        </div>
+        <div id="tile-dl-progress" class="mt-3 d-none">
+          <div class="progress mb-1" style="height:6px">
+            <div class="progress-bar progress-bar-striped progress-bar-animated"
+                 id="tile-dl-bar" style="width:0%"></div>
+          </div>
+          <small id="tile-dl-text" class="text-muted">Starting…</small>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mt-3 d-flex gap-2">
+  <button class="btn btn-accent" id="btn-save-settings">
+    <i class="bi bi-floppy me-1"></i>Save Settings
+  </button>
+  <a href="/map" class="btn btn-outline-secondary">
+    <i class="bi bi-map me-1"></i>Go to Map
+  </a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showBinaryStatus(ok, message) {
+  const el = document.getElementById('binary-status');
+  el.classList.remove('d-none', 'alert-success', 'alert-warning', 'alert-danger');
+  el.classList.add(ok ? 'alert-success' : 'alert-danger');
+  el.textContent = message;
+}
+
+document.getElementById('btn-detect-s')?.addEventListener('click', async () => {
+  const resp = await fetch('/api/binary/detect', { method: 'POST' });
+  const data = await resp.json();
+  if (data.found) {
+    document.getElementById('s-binary').value = data.path;
+    showBinaryStatus(true, '✔ Binary found: ' + data.path);
+  } else {
+    showBinaryStatus(false, '✖ Binary not found in standard search paths. Enter the path manually and click Test.');
+  }
+});
+
+document.getElementById('btn-test-binary')?.addEventListener('click', async () => {
+  const path = document.getElementById('s-binary').value.trim();
+  if (!path) { showBinaryStatus(false, '✖ Enter a path first.'); return; }
+  const resp = await fetch('/api/binary/validate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    showBinaryStatus(true, '✔ Binary is accessible and executable: ' + data.path);
+  } else {
+    showBinaryStatus(false, '✖ ' + data.error);
+  }
+});
+
+document.getElementById('btn-save-settings')?.addEventListener('click', async () => {
+  const body = {
+    binary_path : document.getElementById('s-binary').value.trim(),
+    units       : document.getElementById('s-units').value,
+  };
+  const resp = await fetch('/api/settings', {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify(body),
+  });
+  if (resp.ok) { OCS.toast.success('Settings saved'); }
+  else         { OCS.toast.danger('Save failed'); }
+});
+
+// Offline tile download
+document.getElementById('btn-use-gps-loc')?.addEventListener('click', async () => {
+  try {
+    const pos = await fetch('/api/gps/position').then(r => r.json());
+    if (pos.latitude)  document.getElementById('tile-lat').value = pos.latitude.toFixed(4);
+    if (pos.longitude) document.getElementById('tile-lon').value = pos.longitude.toFixed(4);
+    OCS.toast.info('GPS location loaded');
+  } catch (e) { OCS.toast.warning('GPS not available'); }
+});
+
+document.getElementById('btn-download-tiles')?.addEventListener('click', async () => {
+  const lat      = parseFloat(document.getElementById('tile-lat').value)       || 39.5;
+  const lon      = parseFloat(document.getElementById('tile-lon').value)       || -98.35;
+  const radius   = parseInt(document.getElementById('tile-radius').value, 10)  || 10;
+  const zoom_max = parseInt(document.getElementById('tile-zoom-max').value, 10) || 16;
+
+  const progressDiv  = document.getElementById('tile-dl-progress');
+  const progressBar  = document.getElementById('tile-dl-bar');
+  const progressText = document.getElementById('tile-dl-text');
+  const btn          = document.getElementById('btn-download-tiles');
+
+  progressDiv.classList.remove('d-none');
+  progressBar.style.width = '0%';
+  progressBar.classList.add('progress-bar-animated');
+  btn.disabled = true;
+  progressText.textContent = 'Calculating tiles…';
+
+  try {
+    const resp = await fetch('/api/tiles/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon, radius_km: radius, zoom_min: 10, zoom_max }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      OCS.toast.danger(err.detail || 'Download failed');
+      return;
+    }
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const d = JSON.parse(line);
+          const pct = d.total ? Math.round((d.downloaded + d.cached + d.failed) / d.total * 100) : 100;
+          progressBar.style.width = pct + '%';
+          if (d.done) {
+            progressText.textContent =
+              `Complete — ${d.downloaded} new, ${d.cached} cached, ${d.failed} failed`;
+            progressBar.classList.remove('progress-bar-animated');
+            OCS.toast.success(`Tiles ready: ${d.downloaded} downloaded, ${d.cached} already cached`);
+          } else {
+            progressText.textContent =
+              `${d.downloaded + d.cached} / ${d.total} tiles (${d.failed} failed)`;
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (e) {
+    OCS.toast.danger('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { progressDiv.classList.add('d-none'); }, 5000);
+  }
+});
+</script>
+{% endblock %}

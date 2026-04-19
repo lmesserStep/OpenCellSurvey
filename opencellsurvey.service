@@ -1,0 +1,39 @@
+[Unit]
+Description=OpenCellSurvey RF Survey Server
+Documentation=https://github.com/your-org/opencellsurvey
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=opencellsurvey
+Group=opencellsurvey
+WorkingDirectory=/opt/opencellsurvey/app
+
+ExecStart=/opt/opencellsurvey/venv/bin/uvicorn app:app \
+    --host 0.0.0.0 \
+    --port 8443 \
+    --ssl-certfile /etc/opencellsurvey/cert.pem \
+    --ssl-keyfile  /etc/opencellsurvey/key.pem
+
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+
+# Runtime data and config directories
+Environment="DATA_DIR=/var/lib/opencellsurvey"
+Environment="ETC_DIR=/etc/opencellsurvey"
+
+# Harden the service
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/opencellsurvey /etc/opencellsurvey /tmp
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=opencellsurvey
+
+[Install]
+WantedBy=multi-user.target

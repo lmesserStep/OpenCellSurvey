@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block title %}Survey — OpenCellSurvey{% endblock %}
+{% block page_title %}<i class="bi bi-radar me-2"></i>Survey{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <!-- ─── Scan config ────────────────────────────────────────────────────── -->
+  <div class="col-md-5 col-lg-4">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-sliders me-2"></i>Scan Configuration</div>
+      <div class="card-body">
+        <form id="scan-form" autocomplete="off">
+
+          <div class="form-section-title">Binary</div>
+          <div class="mb-3">
+            <label class="form-label" for="binary-path">Binary Path</label>
+            <div class="input-group">
+              <input type="text" class="form-control font-monospace" id="binary-path"
+                     value="/usr/local/bin/cell_monitor" placeholder="/usr/local/bin/cell_monitor">
+              <button class="btn btn-outline-secondary" type="button" id="btn-detect" title="Auto-detect">
+                <i class="bi bi-search"></i>
+              </button>
+            </div>
+            <div class="form-text">Must be executable. Right-click to auto-detect.</div>
+          </div>
+
+          <div class="form-section-title mt-3">Band</div>
+          <div class="mb-3">
+            <label class="form-label" for="band-select">LTE Band</label>
+            <select class="form-select" id="band-select">
+              {% for num, b in bands.items() %}
+              <option value="{{ num }}" {% if num == 13 %}selected{% endif %}>{{ b.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text text-muted mt-1" id="band-info"></div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="pci-input">PCI <small class="text-muted fw-normal">(optional)</small></label>
+            <input type="number" class="form-control" id="pci-input" min="0" max="503" placeholder="e.g. 135">
+          </div>
+
+          <div class="form-section-title mt-3">Mode</div>
+          <div class="row g-2 mb-3">
+            <div class="col">
+              <label class="form-label" for="scan-mode">Scan Mode</label>
+              <select class="form-select" id="scan-mode">
+                <option value="normal">Normal</option>
+                <option value="fast">Fast</option>
+              </select>
+            </div>
+            <div class="col">
+              <label class="form-label" for="frame-type">Frame Type</label>
+              <select class="form-select" id="frame-type">
+                <option value="FDD">FDD</option>
+                <option value="TDD">TDD</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- TDD bandwidth (hidden unless TDD selected) -->
+          <div class="mb-3" id="bw-group" style="display:none">
+            <label class="form-label" for="bw-select">
+              TDD Bandwidth <span class="text-danger">*</span>
+            </label>
+            <select class="form-select" id="bw-select">
+              <option value="">— Select —</option>
+              <option value="5">5 MHz (25 PRB)</option>
+              <option value="10">10 MHz (50 PRB)</option>
+              <option value="15">15 MHz (75 PRB)</option>
+              <option value="20">20 MHz (100 PRB)</option>
+            </select>
+            <div class="form-text text-danger">Required for TDD mode.</div>
+          </div>
+
+          <div class="d-flex gap-2 mt-4">
+            <button type="button" class="btn btn-accent flex-grow-1" id="btn-start">
+              <i class="bi bi-play-fill me-1"></i>Start Scan
+            </button>
+            <button type="button" class="btn btn-danger flex-grow-1" id="btn-stop" disabled>
+              <i class="bi bi-stop-fill me-1"></i>Stop
+            </button>
+          </div>
+
+        </form>
+
+        <!-- Export report -->
+        <div class="mt-4">
+          <div class="form-section-title">Export</div>
+          <div class="mb-2">
+            <label class="form-label" for="survey-session-select">Session</label>
+            <select class="form-select" id="survey-session-select">
+              <option value="">— Select session —</option>
+            </select>
+          </div>
+          <button type="button" class="btn btn-outline-secondary w-100" id="btn-export" disabled>
+            <i class="bi bi-download me-1"></i>Export Report
+          </button>
+          <div class="form-text text-center" id="survey-export-hint">Select a session to export</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Live metrics ───────────────────────────────────────────────────── -->
+  <div class="col-md-7 col-lg-8">
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-activity me-2"></i>Live Metrics</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-6 col-xl-3">
+            <div class="metric-card" id="card-rsrp">
+              <div class="metric-label">RSRP</div>
+              <div class="metric-value" id="m-rsrp">—</div>
+              <div class="metric-unit">dBm</div>
+            </div>
+          </div>
+          <div class="col-6 col-xl-3">
+            <div class="metric-card">
+              <div class="metric-label">RSRQ</div>
+              <div class="metric-value" id="m-rsrq">—</div>
+              <div class="metric-unit">dB</div>
+            </div>
+          </div>
+          <div class="col-6 col-xl-3">
+            <div class="metric-card">
+              <div class="metric-label">SNR</div>
+              <div class="metric-value" id="m-snr">—</div>
+              <div class="metric-unit">dB</div>
+            </div>
+          </div>
+          <div class="col-6 col-xl-3">
+            <div class="metric-card accent">
+              <div class="metric-label">Frequency</div>
+              <div class="metric-value" id="m-freq">—</div>
+              <div class="metric-unit">MHz</div>
+            </div>
+          </div>
+          <div class="col-6 col-xl-3">
+            <div class="metric-card">
+              <div class="metric-label">PCI</div>
+              <div class="metric-value" id="m-pci">—</div>
+              <div class="metric-unit">&nbsp;</div>
+            </div>
+          </div>
+          <div class="col-6 col-xl-3">
+            <div class="metric-card">
+              <div class="metric-label">PRB</div>
+              <div class="metric-value" id="m-prb">—</div>
+              <div class="metric-unit">&nbsp;</div>
+            </div>
+          </div>
+          <div class="col-6 col-xl-3">
+            <div class="metric-card">
+              <div class="metric-label">Ports</div>
+              <div class="metric-value" id="m-ports">—</div>
+              <div class="metric-unit">&nbsp;</div>
+            </div>
+          </div>
+          <div class="col-6 col-xl-3">
+            <div class="metric-card">
+              <div class="metric-label">Band</div>
+              <div class="metric-value" id="m-band">—</div>
+              <div class="metric-unit" id="m-frame">&nbsp;</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent raw lines -->
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-code-square me-2"></i>Raw Output</span>
+        <button class="btn btn-sm btn-outline-secondary" id="btn-clear-raw">Clear</button>
+      </div>
+      <div class="log-terminal" id="raw-output" style="height:220px"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/survey.js"></script>
+<script>
+/* ── Session selector + export ─────────────────────────────────────────────── */
+(async function () {
+  async function refreshSessionSelect() {
+    const resp     = await fetch('/api/sessions');
+    const sessions = await resp.json();
+    const sel      = document.getElementById('survey-session-select');
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— Select session —</option>';
+    sessions.forEach(s => {
+      sel.insertAdjacentHTML('beforeend',
+        `<option value="${s.id}">${s.name || '(Unnamed)'} (${s.point_count} pts)</option>`);
+    });
+    if (cur) sel.value = cur;
+    updateExportBtn();
+  }
+
+  function updateExportBtn() {
+    const sel  = document.getElementById('survey-session-select');
+    const btn  = document.getElementById('btn-export');
+    const hint = document.getElementById('survey-export-hint');
+    const has  = !!sel?.value;
+    if (btn)  btn.disabled       = !has;
+    if (hint) hint.style.display = has ? 'none' : '';
+  }
+
+  document.getElementById('survey-session-select')?.addEventListener('change', updateExportBtn);
+
+  document.getElementById('btn-export')?.addEventListener('click', async () => {
+    const sel       = document.getElementById('survey-session-select');
+    const sessionId = sel?.value;
+    if (!sessionId) { OCS.toast.warning('Select a session to export'); return; }
+
+    const btn = document.getElementById('btn-export');
+    btn.disabled  = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Exporting…';
+
+    try {
+      const resp = await fetch(`/api/export/${sessionId}/with-map`, {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify({ map_image_base64: null }),
+      });
+      if (!resp.ok) throw new Error(resp.statusText);
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = `report_${sessionId}.html`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      OCS.toast.success('Report exported');
+    } catch (e) {
+      OCS.toast.danger('Export failed: ' + e.message);
+    } finally {
+      btn.disabled  = false;
+      btn.innerHTML = '<i class="bi bi-download me-1"></i>Export Report';
+      updateExportBtn();
+    }
+  });
+
+  // Refresh session list when scan stops (new session may have been created)
+  OCS.ws.on('status', d => { if (!d.running) refreshSessionSelect(); });
+
+  await refreshSessionSelect();
+})();
+</script>
+<script>
+(function () {
+  const rawOut = document.getElementById('raw-output');
+  const MAX_LINES = 200;
+  let lineCount = 0;
+
+  function appendLine(text, cls) {
+    const div = document.createElement('div');
+    div.className = 'log-line ' + (cls || '');
+    div.textContent = text;
+    rawOut.appendChild(div);
+    lineCount++;
+    if (lineCount > MAX_LINES) rawOut.firstChild?.remove();
+    rawOut.scrollTop = rawOut.scrollHeight;
+  }
+
+  OCS.ws.on('survey_data', d => appendLine(JSON.stringify(d), 'log-stdout'));
+  OCS.ws.on('log', d => {
+    const cls = d.message.startsWith('[stderr]') ? 'log-stderr'
+              : d.message.startsWith('[system]') ? 'log-system' : 'log-stdout';
+    appendLine(d.message, cls);
+  });
+
+  document.getElementById('btn-clear-raw')?.addEventListener('click', () => {
+    rawOut.innerHTML = '';
+    lineCount = 0;
+  });
+})();
+</script>
+{% endblock %}

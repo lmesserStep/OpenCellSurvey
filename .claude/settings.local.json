@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import export; print\\('OK'\\)\")",
+      "Bash(python -c \"import storage; print\\('OK'\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(pip install *)",
+      "Bash(python -c \"from PIL import Image; print\\('Pillow OK', Image.__version__\\)\")"
+    ]
+  }
+}
