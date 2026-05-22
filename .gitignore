@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Data & runtime files
+data/
+*.db
+*.sqlite3
+
+# TLS certs
+*.pem
+*.key
+*.crt
+
+# Exports / generated
+static/exports/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / tooling
+.vscode/
+.idea/
+*.swp
+*.swo
+

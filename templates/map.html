@@ -3,8 +3,8 @@
 {% block page_title %}<i class="bi bi-map me-2"></i>Survey{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/static/vendor/leaflet.css"/>
+<script src="/static/vendor/chart.umd.min.js"></script>
 <style>
   /* Map page: compact padding, viewport-filling map */
   .content-area { padding: 10px 12px; }
@@ -406,8 +406,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js"></script>
+<script src="/static/vendor/leaflet.js"></script>
+<script src="/static/vendor/leaflet-image.js"></script>
 <script src="/static/js/map.js"></script>
 
 <script>
