@@ -36,6 +36,6 @@ A self-hosted LTE RF survey tool that uses a custom measurement application buil
 Clone the repo and run the installer as root:
 
 ```bash
-git clone https://github.com/lmesserStep/OCS.git
+git clone https://github.com/lmesserStep/OpenCellSurvey.git
 cd OCS
 sudo ./install.sh
