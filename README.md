@@ -37,5 +37,5 @@ Clone the repo and run the installer as root:
 
 ```bash
 git clone https://github.com/lmesserStep/OpenCellSurvey.git
-cd OCS
+cd OpenCellSurvey
 sudo ./install.sh
