@@ -1,6 +1,8 @@
 # OpenCellSurvey (OCS)
 
-A self-hosted LTE RF survey tool that uses a custom measurement application built with **srsRAN helper functions** to decode LTE MAC/PHY frames and stream live RF measurements into an interactive web UI. Run walking surveys, visualize RSRP/RSRQ/SNR on a color-coded grid, and export PDF-ready HTML reports — all served over HTTPS from a Raspberry Pi or Linux server.
+A self-hosted LTE RF survey tool that uses a custom measurement application built with **srsRAN helper functions** to decode LTE MAC/PHY frames and stream live RF measurements into an interactive web UI. Run walking surveys, visualize RSRP/RSRQ/SNR on a color-coded grid, and export PDF-ready HTML reports — all served over HTTPS from a Raspberry Pi or Linux server. 
+
+You will have to compile [cell_monitor here](https://github.com/lmesserStep/cell_monitor). 
 
 ---
 
